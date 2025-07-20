@@ -9,7 +9,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 def main():
     repo_url = input("Enter Git repo URL: ").strip()
-    repo_path = clone_repo(repo_url, BASE_REPO_DIR)
+    branch = input("Enter branch name (press Enter for default): ").strip() or None
+    repo_path = clone_repo(repo_url, BASE_REPO_DIR, branch=branch)
 
     if not repo_path:
         logger.error("Repository clone failed.")
@@ -17,7 +18,6 @@ def main():
 
     logger.info(f"Repository ready at: {repo_path}")
     summarize_files(repo_path)
-
 
 if __name__ == "__main__":
     main()
