@@ -6,7 +6,7 @@ from pathlib import Path
 logger = logging.getLogger("repo_cloner")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-def clone_repo(repo_url: str, dest_dir: Path) -> Path:
+def clone_repo(repo_url: str, dest_dir: Path, branch: str = None) -> Path:
     repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', "")
     repo_path = dest_dir / repo_name
 
@@ -16,7 +16,10 @@ def clone_repo(repo_url: str, dest_dir: Path) -> Path:
 
     logger.info(f"Cloning {repo_url} into {repo_path} ...")
     try:
-        git.Repo.clone_from(repo_url, repo_path)
+        if branch:
+            git.Repo.clone_from(repo_url, repo_path, branch=branch)
+        else:
+            git.Repo.clone_from(repo_url, repo_path)
         logger.info("Clone complete.")
         return repo_path
     except Exception as e:
