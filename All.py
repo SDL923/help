@@ -4,90 +4,88 @@ import requests
 from pathlib import Path
 from dotenv import load_dotenv
 
-from config import BASE_REPO_DIR
-
 # === LOAD ENV ===
 load_dotenv()
 
 # === CONFIG ===
 SUMMARY_DIR = Path("summaries")
-SUMMARY_DIR.mkdir(exist_ok=True)
+OUTPUT_PATH = Path("repo_summary.json")
 
 LLAMA_API_URL = "https://llama.company.com/api/chat"  # 예시용
 LLAMA_API_KEY = "your-llama-api-key"  # 예시용
 
-# === FILTERING ===
-EXCLUDED_DIRS = {
-    "tests", "test", "__pycache__", "venv", ".venv", "build", "dist",
-    "migrations", "bin", ".git", ".github", "github", "git", "libs", "third_party"
-}
-EXCLUDED_FILES = {"__init__.py", "setup.py"}
+
+def load_summaries(summary_dir: Path):
+    summaries = []
+    for file in summary_dir.glob("*.json"):
+        try:
+            with open(file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                summaries.append(data)
+        except Exception as e:
+            print(f"[!] Failed to load {file.name}: {e}")
+    return summaries
 
 
-def should_summarize(filepath: Path) -> bool:
-    if not filepath.suffix == ".py":
-        return False
-    if filepath.name in EXCLUDED_FILES:
-        return False
-    if any(part in EXCLUDED_DIRS for part in filepath.parts):
-        return False
-    if filepath.stat().st_size < 30:
-        return False
-    return True
+def generate_repo_summary(summaries: list) -> str:
+    system_prompt = """
+    당신은 Python 레포지토리 분석 전문가입니다.
+    """
 
+    user_prompt_template = """
+    다음은 여러 Python 파일들의 요약입니다. 이 레포지토리 전체의 구조와 기능을 분석하여 다음 정보를 요약해주세요:
 
-# === LLM PROMPT ===
-SYSTEM_PROMPT = """
-당신은 Python 코드를 구조적으로 분석해서 요약하는 전문가입니다.
-"""
+    - 전체 레포의 주요 목적
+    - 주요 기능 영역 (예: 인증, 라우팅, 문서화 등)
+    - 각 기능에 연관된 파일 이름
+    - 기능 간 관계나 의존성이 중요한 경우 간단히 언급
 
-USER_PROMPT_TEMPLATE = """
-다음은 하나의 Python 파일입니다. 이 파일의 핵심 구조와 기능을 요약해 주세요.
+    가능하면 주요 기능과 파일 매핑 정보를 JSON 형태로도 출력해주세요.
 
-요약 결과는 반드시 **JSON 형식**으로 작성하며, 다음 항목을 포함해야 합니다:
+    ```json
+    {summaries_json}
+    ```
+    """
 
-- file: (string) 파일 이름
-- description: (string) 이 파일이 수행하는 주요 역할, 기능 설명
-- key_functions: (list of strings) 핵심 함수 이름 목록
-- key_classes: (list of strings) 핵심 클래스 이름 목록
-- depends_on: (list of strings) 이 파일이 import한 외부 모듈 또는 다른 내부 파일 이름
-
-⚠️ 반드시 JSON으로만 응답하고, 주석이나 설명을 추가하지 마세요.
-
-파일명: {filename}
-
-```python
-{code}
-```
-"""
-
-
-# === LLAMA 요약 함수 ===
-def summarize_file_with_llm(filepath: Path) -> dict:
-    with open(filepath, "r", encoding="utf-8") as f:
-        code = f.read()
-
-    prompt = USER_PROMPT_TEMPLATE.format(filename=str(filepath.name), code=code[:6000])
-
-    payload = {
-        "model": "llama-3-chat",  # 실제 모델 이름에 맞게 수정
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.2
-    }
+    summaries_json = json.dumps(summaries, indent=2, ensure_ascii=False)
+    user_prompt = user_prompt_template.format(summaries_json=summaries_json)
 
     headers = {
         "Authorization": f"Bearer {LLAMA_API_KEY}",
         "Content-Type": "application/json"
     }
 
-    try:
-        res = requests.post(LLAMA_API_URL, headers=headers, json=payload)
-        res.raise_for_status()
-        summary = res.json()["choices"][0]["message"]["content"].strip()
+    payload = {
+        "model": "llama-3-chat",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": 0.2
+    }
 
-        if summary.startswith("```json"):
-            summary = summary.lstrip("`json\n").rstrip("`").strip()
-        elif summary.startswith("```"):
+    try:
+        response = requests.post(LLAMA_API_URL, headers=headers, json=payload)
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        print(f"[!] Failed to get repo summary: {e}")
+        return ""
+
+
+if __name__ == "__main__":
+    summaries = load_summaries(SUMMARY_DIR)
+
+    if not summaries:
+        print("[X] 요약본이 없습니다. 먼저 summarize_python_files.py 를 실행하세요.")
+        exit(1)
+
+    print(f"[*] 총 요약 파일 수: {len(summaries)}")
+    result = generate_repo_summary(summaries)
+
+    print("\n[✓] 전체 레포 요약 결과:\n")
+    print(result)
+
+    with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
+        f.write(result)
+    print(f"\n[✓] 저장 완료: {OUTPUT_PATH}")
